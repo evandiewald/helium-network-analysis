@@ -4,6 +4,9 @@ import h3
 import networkx as nx
 import urllib
 import numpy as np
+import pandas as pd
+import time
+import random
 
 
 def list_hotspots_in_city(city_id: str):
@@ -85,9 +88,10 @@ def get_unique_hex_list(hotspot_list: list):
     unique_hexes = {}
     for hotspot in hotspot_list:
         if hotspot['location_hex'] not in unique_hexes.keys():
-            unique_hexes[hotspot['location_hex']] = [hotspot['address']]
+            unique_hexes[hotspot['location_hex']] = {}
+            unique_hexes[hotspot['location_hex']]['hotspots'] = [hotspot['address']]
         else:
-            unique_hexes[hotspot['location_hex']].append(hotspot['address'])
+            unique_hexes[hotspot['location_hex']]['hotspots'].append(hotspot['address'])
     return unique_hexes
 
 
@@ -103,9 +107,30 @@ def get_elevation_of_coords(coords):
         'units': 'Meters'
     }
     # format query string and return query value
-    result = requests.get((url + urllib.parse.urlencode(params)))
+    while True:
+        backoff = 1
+        try:
+            result = requests.get((url + urllib.parse.urlencode(params)))
+            break
+        except ConnectionError:
+            print('Backing off USGS service...')
+            time.sleep(backoff)
+            backoff *= 2 + random.rand()
+            if backoff > 512:
+                print(f"Backoff time: {str(backoff)}")
+                break
     elevation = result.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation']
     return elevation
+
+
+def list_hotspots_in_hex(h):
+    url = 'https://api.helium.io/v1/hotspots/hex/' + h
+    r = requests.get(url)
+    hotspots = r.json()['data']
+    hotspots_in_hex = []
+    for hotspot in hotspots:
+        hotspots_in_hex.append(hotspot['address'])
+    return hotspots_in_hex
 
 
 def create_hotspot_hex_graph(hotspot_list: list):
@@ -172,3 +197,24 @@ def clean_graph_mapping_data(g: nx.Graph):
             g.nodes[node]['rssi'] = rssi_mean
             g.nodes[node]['snr'] = snr_mean
     return g
+
+
+def graph_to_node_data_dict(g: nx.Graph):
+    pg = nx.pagerank(g)
+    bc = nx.betweenness_centrality(g)
+    node_data = []
+    for node in g.nodes():
+        data = g.nodes[node]
+        data['pg'], data['bc'] = pg[node], bc[node]
+        # data['hex'] =
+        try:
+            data.pop('pos')
+        except KeyError:
+            pass
+        node_data.append(data)
+    df = pd.DataFrame(node_data)
+    return df
+
+
+
+
