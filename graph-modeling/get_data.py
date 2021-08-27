@@ -121,8 +121,8 @@ def get_elevation_of_coords(coords):
                 print(f"Backoff time: {str(backoff)}")
                 break
     elevation = result.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation']
-    if type(elevation) is str:
-        elevation = 0
+    if type(elevation) is str: # this means that USGS does not have data for that point
+        elevation = None
     return elevation
 
 

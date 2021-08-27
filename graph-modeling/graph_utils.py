@@ -139,9 +139,9 @@ def generate_figure(G: nx.Graph):
     # fig = go.Figure()
     # fig.update_layout(mapbox_style="dark", mapbox_accesstoken=token, mapbox_zoom=12, mapbox_center_lat=40.44,
     #                   mapbox_center_lon=-80, )
-    hex_trace = go.Scatter(x=node_hex_x, y=node_hex_y, fill='toself')
+    # hex_trace = go.Scatter(x=node_hex_x, y=node_hex_y, fill='toself')
 
-    fig = go.Figure(data=[hex_trace, edge_trace, node_trace],
+    fig = go.Figure(data=[edge_trace, node_trace],
                     layout=go.Layout(
                         title='<br>Helium Network in Pittsburgh, PA - Markers are Sized by Elevation',
                         titlefont_size=16,
