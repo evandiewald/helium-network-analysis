@@ -7,15 +7,18 @@ from torch_geometric.utils import from_networkx
 from torch_geometric.data import Data
 import pickle
 
+
 class CityGraph:
     def __init__(self, city_id):
         self.city_id = city_id
         self.g = None
         self.hotspot_list = list_hotspots_in_city(city_id)
+        self.positions = None
 
     def generate_graph(self, calculate_rewards=False):
         """Uses list of hotspots and witness data to create nodes and adjacency with networkx"""
         g = nx.Graph()
+        positions = {}
 
         # create nodes for all hotspots in list
         for hotspot in self.hotspot_list:
@@ -23,9 +26,11 @@ class CityGraph:
                 hotspot['rewards'] = get_hotspot_rewards(hotspot['address'], 5)
             else:
                 hotspot['rewards'] = 0
-            g.add_node(hotspot['address'], pos=(hotspot['lng'], hotspot['lat']), lat=hotspot['lat'], lng=hotspot['lng'],
+            coords = (hotspot['lng'], hotspot['lat'])
+            g.add_node(hotspot['address'], pos=coords, lat=hotspot['lat'], lng=hotspot['lng'],
                        location_hex=hotspot['location_hex'], name=hotspot['name'], rewards=hotspot['rewards'],
                        gain=hotspot['gain'], elevation=hotspot['elevation'])
+            positions[hotspot['address']] = coords
 
         # create edges representing hotspots that witness each other
         i = 0
@@ -48,6 +53,8 @@ class CityGraph:
                 print(f"{str(i)} out of {str(len(self.hotspot_list))} hotspots complete...")
 
         self.g = g
+        self.positions = positions
+        return g
 
     def pagerank(self):
         if not self.g:
@@ -66,30 +73,40 @@ class MapperGraph:
         self.hotspot_list = list_hotspots_in_city(city_id)
         self.city_hexes = get_unique_hex_list(self.hotspot_list)
         self.g = None
+        self.positions = None
 
     def generate_graph(self):
         g = nx.Graph()
+        positions = {}
 
         # most straightforward to create all the nodes first, then edges
         for h in self.city_hexes.keys():
             num_hotspots_in_hex = len(self.city_hexes[h]['hotspots'])
             # get mapper data, which is collected at h9 res
             mapper_stats = get_mapper_uplinks_for_location_hex(h3.h3_to_center_child(h, 9))
-            g.add_node(h, num_hotspots=num_hotspots_in_hex, pos=h3.h3_to_geo(h), rssi=mapper_stats['bestRssi'],
+            coords = h3.h3_to_geo(h)
+            g.add_node(h, num_hotspots=num_hotspots_in_hex, pos=coords, rssi=mapper_stats['bestRssi'],
                        snr=mapper_stats['bestSnr'], redundancy=mapper_stats['redundancy'])
+            positions[h] = coords
 
         for h in self.city_hexes.keys():
-            hex_neighbors = h3.h3_k_ring(h, 1)
+            hex_neighbors = h3.k_ring(h, 1)
             for neighbor in hex_neighbors:
-                if neighbor in g.nodes():
+                if neighbor in g.nodes() and neighbor != h:
                     g.add_edge(h, neighbor)
                 else:
                     continue
+
+        self.g = g
+        self.positions = positions
+        return g
 
 
 class HotspotData:
     def __init__(self, hotspot_list):
         self.hotspot_list = hotspot_list
+        self.hotspot_data = None
+        self.hex_list = None
 
     def generate_hotspot_data(self, online_only=True, save_checkpoints=True, save_path='hotspot_data.json'):
         hotspot_data = {}
@@ -122,6 +139,7 @@ class HotspotData:
                     with open(save_path, 'w') as f:
                         json.dump(hotspot_data, f)
 
+        self.hotspot_data = hotspot_data
         return hotspot_data
 
     def generate_hex_list(self, save_checkpoint=True, save_path='hex_list.pkl'):
@@ -145,11 +163,18 @@ class HotspotData:
                         pickle.dump(hex_list, f, protocol=pickle.HIGHEST_PROTOCOL)
                         changes_made = False
 
+        self.hex_list = None
+        return hex_list
+
 
 class HotspotGraph:
     def __init__(self, hotspot_address: str):
         self.address = hotspot_address
         self.witnesses = list_witnesses_for_hotspot(hotspot_address)
+        self.torch_nearby_graph = None
+        self.networkx_nearby_graph = None
+        self.torch_witness_graph = None
+        self.networkx_witness_graph = None
 
     def generate_nearby_hotspot_graph(self, k_rings: int, hotspot_data, hex_list, format='torch'):
         """Generates edges connecting this hotspot to others within the k rings of its h8 hex.
@@ -212,8 +237,10 @@ class HotspotGraph:
             data = Data(x=gt.elev.reshape((gt.num_nodes, 1)), edge_index=gt.edge_index,
                         pos=gt.pos.reshape((gt.num_nodes, 2)),
                         y=gt.node_class, edge_attr=gt.dist, num_classes=2)
+            self.torch_nearby_graph = data
             return data
         else:
+            self.networkx_nearby_graph = g
             return g
 
 
@@ -241,9 +268,12 @@ class HotspotGraph:
 
             data = Data(x=gt.elev.reshape((gt.num_nodes, 1)), edge_index=gt.edge_index,
                         pos=gt.pos.reshape((gt.num_nodes, 2)))
+
+            self.torch_witness_graph = data
             return data
 
         else:
+            self.networkx_witness_graph = g
             return g
 
 
