@@ -87,11 +87,12 @@ def get_unique_hex_list(hotspot_list: list):
     """Gets list of unique h8 hexes that contain hotspots from list"""
     unique_hexes = {}
     for hotspot in hotspot_list:
-        if hotspot['location_hex'] not in unique_hexes.keys():
+        if hotspot['location_hex'] not in unique_hexes.keys() and hotspot['status']['online'] == 'online':
             unique_hexes[hotspot['location_hex']] = {}
             unique_hexes[hotspot['location_hex']]['hotspots'] = [hotspot['address']]
         else:
-            unique_hexes[hotspot['location_hex']]['hotspots'].append(hotspot['address'])
+            if hotspot['status']['online'] == 'online':
+                unique_hexes[hotspot['location_hex']]['hotspots'].append(hotspot['address'])
     return unique_hexes
 
 
@@ -112,7 +113,7 @@ def get_elevation_of_coords(coords):
         try:
             result = requests.get((url + urllib.parse.urlencode(params)))
             break
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             print('Backing off USGS service...')
             time.sleep(backoff)
             backoff *= 2 + random.rand()
@@ -120,6 +121,8 @@ def get_elevation_of_coords(coords):
                 print(f"Backoff time: {str(backoff)}")
                 break
     elevation = result.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation']
+    if type(elevation) is str:
+        elevation = 0
     return elevation
 
 
@@ -129,6 +132,8 @@ def list_hotspots_in_hex(h):
     hotspots = r.json()['data']
     hotspots_in_hex = []
     for hotspot in hotspots:
+        if hotspot['status']['online'] == 'offline':
+            continue
         hotspots_in_hex.append(hotspot['address'])
     return hotspots_in_hex
 
@@ -216,5 +221,8 @@ def graph_to_node_data_dict(g: nx.Graph):
     return df
 
 
-
-
+def get_hotspot_details(address: str):
+    url = 'https://api.helium.io/v1/hotspots/' + address
+    r = requests.get(url)
+    details = r.json()['data']
+    return details
